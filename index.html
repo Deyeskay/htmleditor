@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HTML One‑File Playground • Editor + Preview + Console</title>
+  <meta name="description" content="A single-file HTML/CSS/JS playground with Monaco editor, preview, console, maximize panes, and share via URL. Host on GitHub Pages." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%2300d1b2' d='M6 12h52v8H6zM6 28h52v8H6zM6 44h52v8H6z'/%3E%3C/svg%3E" />
+  <style>
+    :root{
+      --bg: #0b0e12; --pane:#121720; --pane-2:#0f141c; --ac:#00d1b2; --fg:#dbe2ee; --muted:#93a1b3; --border:#1d2633;
+      --btn:#151b24; --btn2:#18202b; --yellow:#ffd866; --red:#ff5370; --green:#a6e22e;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial}
+    .toolbar{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#0d1219,#0b0e12)}
+    .logo{display:flex;align-items:center;font-weight:700;letter-spacing:.2px}
+    .logo svg{width:22px;height:22px;margin-right:8px}
+    .spacer{flex:1}
+    .btn{background:var(--btn);border:1px solid var(--border);color:var(--fg);padding:8px 12px;border-radius:10px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
+    .btn:hover{background:var(--btn2)}
+    .btn[data-primary]{border-color:#0e2;box-shadow:0 0 0 1px #0e2 inset}
+    .btn small{opacity:.8}
+    .kbd{padding:2px 6px;border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;background:#0c1117;color:var(--muted);font-size:12px}
+
+    .wrap{height:calc(100% - 54px);display:grid;grid-template-columns: 1.3fr 1fr;grid-template-rows: 1fr 220px;gap:10px;padding:10px}
+    .pane{background:var(--pane);border:1px solid var(--border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;min-height:0;position:relative}
+    .pane header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--pane-2)}
+    .pane header .title{font-weight:600}
+    .pane header .right{margin-left:auto;display:flex;gap:6px}
+    .mini-btn{background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--muted);padding:6px;cursor:pointer;display:inline-flex}
+    .mini-btn:hover{color:var(--fg);background:#121823}
+    .tabs{display:flex;gap:6px;padding:8px;border-bottom:1px solid var(--border);background:var(--pane)}
+    .tab{padding:6px 10px;border:1px solid var(--border);border-radius:10px;cursor:pointer;color:var(--muted)}
+    .tab.active{color:var(--fg);background:#0c121a}
+
+    #editorHost{flex:1;position:relative;min-height:0}
+    #previewFrame{border:0;flex:1;background:#fff}
+    #console{flex:1;background:#0a0e13;font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;padding:8px;overflow:auto}
+    .log{white-space:pre-wrap}
+    .log .t{color:#667}
+    .log .info{color:#9ee}
+    .log .warn{color:var(--yellow)}
+    .log .err{color:var(--red)}
+
+    /* Grid placement */
+    .pane.editor{grid-column:1;grid-row:1/span 2}
+    .pane.preview{grid-column:2;grid-row:1}
+    .pane.console{grid-column:2;grid-row:2}
+
+    /* Maximize overlays */
+    .pane.max{position:fixed;inset:10px;z-index:50;box-shadow:0 12px 40px rgba(0,0,0,.6)}
+    .glass{position:absolute;inset:0;background:radial-gradient(600px 400px at 80% 0%,rgba(0,209,178,.10),transparent 60%), radial-gradient(600px 400px at 20% 100%,rgba(255,83,112,.08),transparent 60%)}
+
+    /* Toast */
+    .toast{position:fixed;right:12px;bottom:12px;background:#101622;border:1px solid var(--border);color:var(--fg);padding:8px 12px;border-radius:10px;opacity:0;transform:translateY(10px);transition:.3s;z-index:60}
+    .toast.show{opacity:1;transform:translateY(0)}
+
+    @media (max-width: 980px){
+      .wrap{grid-template-columns: 1fr; grid-template-rows: 1fr 380px 220px}
+      .pane.editor{grid-column:1;grid-row:1}
+      .pane.preview{grid-column:1;grid-row:2}
+      .pane.console{grid-column:1;grid-row:3}
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <div class="logo" title="HTML One‑File Playground">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v3H3zM3 11h18v3H3zM3 16h18v3H3z" fill="var(--ac)"/></svg>
+      <span>Playground</span>
+    </div>
+    <button id="runBtn" class="btn" data-primary>
+      ▶ Run <span class="kbd">Ctrl/Cmd+Enter</span>
+    </button>
+    <button id="shareBtn" class="btn">Share URL <small>(Ctrl/Cmd+S)</small></button>
+    <button id="downloadBtn" class="btn">Download files</button>
+    <div class="spacer"></div>
+    <button id="themeBtn" class="btn" title="Toggle theme">🌙 Theme</button>
+    <button id="fullscreenBtn" class="btn" title="Fullscreen">⛶ Fullscreen</button>
+    <a class="btn" href="https://microsoft.github.io/monaco-editor/" target="_blank" rel="noreferrer">Monaco Docs ↗</a>
+  </div>
+
+  <div class="wrap">
+    <!-- EDITOR -->
+    <section class="pane editor" id="editorPane" aria-label="Editor">
+      <div class="glass" aria-hidden="true"></div>
+      <header>
+        <div class="title">Editor</div>
+        <div class="right">
+          <button class="mini-btn" id="maxEditor" title="Maximize editor">⛶</button>
+        </div>
+      </header>
+      <nav class="tabs" id="tabs"></nav>
+      <div id="editorHost" aria-live="polite"></div>
+    </section>
+
+    <!-- PREVIEW -->
+    <section class="pane preview" id="previewPane" aria-label="Preview">
+      <header>
+        <div class="title">Preview</div>
+        <div class="right">
+          <button class="mini-btn" id="openNewTab" title="Open preview in new tab">↗</button>
+          <button class="mini-btn" id="maxPreview" title="Maximize preview">⛶</button>
+        </div>
+      </header>
+      <iframe id="previewFrame" sandbox="allow-scripts allow-same-origin allow-popups" title="Preview output"></iframe>
+    </section>
+
+    <!-- CONSOLE -->
+    <section class="pane console" id="consolePane" aria-label="Console">
+      <header>
+        <div class="title">Console</div>
+        <div class="right">
+          <button class="mini-btn" id="clearConsole" title="Clear Console">🗑</button>
+          <button class="mini-btn" id="maxConsole" title="Maximize console">⛶</button>
+        </div>
+      </header>
+      <div id="console" class="log" role="log" aria-live="polite"></div>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- Monaco + LZString from CDN -->
+  <script>
+    window.require = { paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lz-string@1.5.0/libs/lz-string.min.js"></script>
+
+  <script>
+  (function(){
+    const DEFAULTS={
+      html:`<!doctype html>\n<html>\n<head>\n  <meta charset='utf-8'>\n  <meta name='viewport' content='width=device-width, initial-scale=1'>\n  <title>Playground App</title>\n</head>\n<body>\n  <h1>Hello, Playground! 👋</h1>\n  <button id='btn'>Click me</button>\n  <p>Edit HTML/CSS/JS and press <b>Run</b> or <b>Ctrl/Cmd+Enter</b>.</p>\n</body>\n</html>`,
+      css:`body{font-family:system-ui} h1{color:#0d9488}`,
+      js:`console.log('Welcome!');\nconst btn=document.getElementById('btn');\nif(btn){btn.addEventListener('click',()=>console.log('Button clicked at',new Date().toLocaleTimeString()))}`
+    };
+    const STORAGE_KEY='onefile-playground-v1';
+
+    const el={
+      runBtn: document.getElementById('runBtn'),
+      shareBtn: document.getElementById('shareBtn'),
+      downloadBtn: document.getElementById('downloadBtn'),
+      themeBtn: document.getElementById('themeBtn'),
+      fullscreenBtn: document.getElementById('fullscreenBtn'),
+      tabs: document.getElementById('tabs'),
+      editorHost: document.getElementById('editorHost'),
+      previewFrame: document.getElementById('previewFrame'),
+      console: document.getElementById('console'),
+      toast: document.getElementById('toast'),
+      maxEditor: document.getElementById('maxEditor'),
+      maxPreview: document.getElementById('maxPreview'),
+      maxConsole: document.getElementById('maxConsole'),
+      openNewTab: document.getElementById('openNewTab'),
+      clearConsole: document.getElementById('clearConsole'),
+      editorPane: document.getElementById('editorPane'),
+      previewPane: document.getElementById('previewPane'),
+      consolePane: document.getElementById('consolePane')
+    };
+
+    const tabs=[
+      {id:'html', name:'HTML', lang:'html', icon:'</>'},
+      {id:'css', name:'CSS', lang:'css', icon:'{ }'},
+      {id:'js', name:'JS', lang:'javascript', icon:'JS'}
+    ];
+
+    let editors={};
+    let activeTab='html';
+    let monaco;
+
+    function toast(msg){
+      el.toast.textContent=msg; el.toast.classList.add('show');
+      clearTimeout(toast._t); toast._t=setTimeout(()=>el.toast.classList.remove('show'), 1600);
+    }
+
+    function loadState(){
+      // hash > localStorage > defaults
+      try{
+        const params=new URLSearchParams(location.hash.slice(1));
+        if(params.get('z')){
+          const json=LZString.decompressFromEncodedURIComponent(params.get('z'));
+          if(json){ return JSON.parse(json); }
+        }
+      }catch(e){ console.warn('Hash decode error', e); }
+      try{
+        const s=localStorage.getItem(STORAGE_KEY); if(s) return JSON.parse(s);
+      }catch(e){}
+      return {html:DEFAULTS.html, css:DEFAULTS.css, js:DEFAULTS.js};
+    }
+
+    function saveStateToHash(){
+      const state = getState();
+      const z=LZString.compressToEncodedURIComponent(JSON.stringify(state));
+      location.hash='z='+z; // enables shareable URL
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      toast('Saved to URL');
+    }
+
+    function getState(){
+      return {
+        html: editors.html?.getValue() ?? DEFAULTS.html,
+        css: editors.css?.getValue() ?? DEFAULTS.css,
+        js: editors.js?.getValue() ?? DEFAULTS.js
+      }
+    }
+
+    function buildHTMLDoc({html,css,js}, forWindow=false){
+      const consoleBridge = `\n<script>\n(function(){\n  const q = (type, args)=> parent.postMessage({type, args}, '*');\n  ['log','info','warn','error'].forEach(k=>{\n    const orig = console[k].bind(console);\n    console[k]=function(){ orig.apply(console, arguments); q('console:'+k, Array.from(arguments)); }\n  });\n  window.addEventListener('error', e=>{ q('console:error', [e.message+' @ '+(e.filename||'')+':'+(e.lineno||'')]); });\n})();\n<\/script>`;
+      const userJS = `<script>\ntry{\n${js}\n}catch(e){console.error(e)}\n<\/script>`;
+      return `<!doctype html>\n<html>\n<head>\n<meta charset='utf-8'/>\n<meta name='viewport' content='width=device-width, initial-scale=1'/>\n<style>\n${css}\n</style>\n</head>\n<body>\n${html}\n${consoleBridge}\n${userJS}\n</body>\n</html>`;
+    }
+
+    function run(){
+      const doc = buildHTMLDoc(getState());
+      const blob = new Blob([doc], {type:'text/html'});
+      const url = URL.createObjectURL(blob);
+      el.previewFrame.src = url;
+      setTimeout(()=>URL.revokeObjectURL(url), 3000);
+      el.console.textContent='';
+    }
+
+    function logToConsole(kind, args){
+      const row = document.createElement('div');
+      row.className='row';
+      const t = document.createElement('span'); t.className='t'; t.textContent = new Date().toLocaleTimeString();
+      const m = document.createElement('span'); m.className = kind; m.style.marginLeft='8px'; m.textContent = args.map(a=>{
+        try{ return typeof a==='object'? JSON.stringify(a): String(a); }catch{return String(a)}
+      }).join(' ');
+      row.append(t,m); el.console.appendChild(row); el.console.scrollTop = el.console.scrollHeight;
+    }
+
+    window.addEventListener('message', (e)=>{
+      const {type, args} = e.data || {}; if(!type) return;
+      if(type.startsWith('console:')){
+        const k=type.split(':')[1];
+        const map={log:'info',info:'info',warn:'warn',error:'err'}; logToConsole(map[k]||'info', args||[]);
+      }
+    });
+
+    function switchTab(id){
+      activeTab=id;
+      [...el.tabs.children].forEach(x=>x.classList.toggle('active', x.dataset.id===id));
+      for(const k in editors){ editors[k].getDomNode().style.display = (k===id? 'block':'none'); }
+      editors[id].layout();
+    }
+
+    function createTabs(){
+      tabs.forEach(t=>{
+        const b=document.createElement('button'); b.className='tab'; b.dataset.id=t.id; b.textContent=t.name; b.addEventListener('click',()=>switchTab(t.id)); el.tabs.appendChild(b);
+      });
+    }
+
+    function initEditors(init){
+      require(['vs/editor/editor.main'], function(m){
+        monaco=m;
+        const opts=(lang, val)=>({
+          value: val, language: lang, automaticLayout:true, theme: document.documentElement.dataset.theme==='light'? 'vs':'vs-dark',
+          fontLigatures: true, fontSize: 14, minimap:{enabled:false}, wordWrap:'on', scrollBeyondLastLine:false
+        });
+        tabs.forEach(t=>{
+          const div=document.createElement('div'); div.style.cssText='position:absolute; inset:0;'; el.editorHost.appendChild(div);
+          const ed = monaco.editor.create(div, opts(t.lang, init[t.id]||''));
+          editors[t.id]=ed; if(t.id!=='html') div.style.display='none';
+        });
+        switchTab('html');
+      });
+    }
+
+    function toggleTheme(){
+      const light = document.documentElement.dataset.theme==='light';
+      document.documentElement.dataset.theme = light? 'dark':'light';
+      // swap palette
+      if(!light){ // go light
+        document.documentElement.style.setProperty('--bg','#f5f7fb');
+        document.documentElement.style.setProperty('--pane','#ffffff');
+        document.documentElement.style.setProperty('--pane-2','#f2f5fb');
+        document.documentElement.style.setProperty('--fg','#0b0e12');
+        document.documentElement.style.setProperty('--muted','#425067');
+        document.documentElement.style.setProperty('--border','#e8eef7');
+        document.documentElement.style.setProperty('--btn','#f7f9fe');
+        document.documentElement.style.setProperty('--btn2','#eef3fb');
+      }else{ // back to dark
+        document.documentElement.style.cssText='';
+      }
+      if(monaco){ const theme = document.documentElement.dataset.theme==='light'? 'vs':'vs-dark'; monaco.editor.setTheme(theme); }
+      localStorage.setItem(STORAGE_KEY+':theme', document.documentElement.dataset.theme||'dark');
+    }
+
+    function restoreTheme(){
+      const t=localStorage.getItem(STORAGE_KEY+':theme'); if(t==='light'){ document.documentElement.dataset.theme='light'; toggleTheme(); }
+    }
+
+    function maximizePane(pane){ pane.classList.toggle('max'); }
+
+    function openInNewTab(){
+      const html = buildHTMLDoc(getState(), true);
+      const blob = new Blob([html], {type:'text/html'});
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      setTimeout(()=>URL.revokeObjectURL(url), 3000);
+    }
+
+    function downloadFiles(){
+      const {html,css,js}=getState();
+      const save=(name,content)=>{
+        const a=document.createElement('a');
+        a.href=URL.createObjectURL(new Blob([content],{type:'text/plain'}));
+        a.download=name; document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
+      };
+      save('index.html', buildHTMLDoc({html,css,js}));
+      save('style.css', css); save('app.js', js);
+    }
+
+    function goFullscreen(){
+      if(document.fullscreenElement){ document.exitFullscreen(); }
+      else{ document.documentElement.requestFullscreen?.(); }
+    }
+
+    // Wire UI
+    el.runBtn.addEventListener('click', run);
+    el.shareBtn.addEventListener('click', saveStateToHash);
+    el.downloadBtn.addEventListener('click', downloadFiles);
+    el.themeBtn.addEventListener('click', toggleTheme);
+    el.fullscreenBtn.addEventListener('click', goFullscreen);
+    el.maxEditor.addEventListener('click', ()=>maximizePane(el.editorPane));
+    el.maxPreview.addEventListener('click', ()=>maximizePane(el.previewPane));
+    el.maxConsole.addEventListener('click', ()=>maximizePane(el.consolePane));
+    el.openNewTab.addEventListener('click', openInNewTab);
+    el.clearConsole.addEventListener('click', ()=>el.console.textContent='');
+
+    document.addEventListener('keydown', (e)=>{
+      const mac = navigator.platform.toUpperCase().includes('MAC');
+      const ctrl = mac? e.metaKey : e.ctrlKey;
+      if(ctrl && e.key.toLowerCase()==='s'){ e.preventDefault(); saveStateToHash(); }
+      if(ctrl && e.key==='Enter'){ e.preventDefault(); run(); }
+    });
+
+    // Init
+    restoreTheme();
+    const init = loadState();
+    createTabs();
+    initEditors(init);
+    run();
+  })();
+  </script>
+</body>
+</html>
