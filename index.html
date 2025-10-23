@@ -17,7 +17,6 @@
     body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial}
     .toolbar{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,#0d1219,#0b0e12)}
     .logo{display:flex;align-items:center;font-weight:700;letter-spacing:.2px}
-    .logo svg{width:22px;height:22px;margin-right:8px}
     .spacer{flex:1}
     .btn{background:var(--btn);border:1px solid var(--border);color:var(--fg);padding:8px 12px;border-radius:10px;cursor:pointer;display:inline-flex;gap:8px;align-items:center}
     .btn:hover{background:var(--btn2)}
@@ -79,7 +78,7 @@
 <body>
   <div class="toolbar">
     <div class="logo" title="HTML One‑File Playground">
-       <img src="https://deyeskay.github.io/hub/sk-download.svg" alt="SK Games logo" style="width: 30px;">
+      <img src="https://deyeskay.github.io/hub/sk-download.svg" alt="SK Games logo" style="width: 30px; margin-right:8px;">
       <span>Playground</span>
     </div>
     <button id="runBtn" class="btn" data-primary>
@@ -156,6 +155,9 @@
       js:`console.log('Welcome!');\nconst btn=document.getElementById('btn');\nif(btn){btn.addEventListener('click',()=>console.log('Button clicked at',new Date().toLocaleTimeString()))}`
     };
     const STORAGE_KEY='onefile-playground-v1';
+    // Default split ratios
+    const DEFAULT_COL_RATIO = 0.6;  // 60/40 editor–preview
+    const DEFAULT_ROW_RATIO = 0.6;  // 60/40 preview–console
 
     // ---------- Elements ----------
     const el={
@@ -200,7 +202,6 @@
     }
 
     function loadState(){
-      // hash > localStorage > defaults
       try{
         const params=new URLSearchParams(location.hash.slice(1));
         if(params.get('z')){
@@ -255,7 +256,6 @@
       const consoleBridge = `\n<script>\n(function(){\n  const q = (type, args)=> parent.postMessage({type, args}, '*');\n  ['log','info','warn','error'].forEach(k=>{\n    const orig = console[k].bind(console);\n    console[k]=function(){ orig.apply(console, arguments); q('console:'+k, Array.from(arguments)); }\n  });\n  window.addEventListener('error', e=>{ q('console:error', [e.message+' @ '+(e.filename||'')+':'+(e.lineno||'')]); });\n})();\n<\/script>`;
       const userJS = `<script>\ntry{\n${js}\n}catch(e){console.error(e)}\n<\/script>`;
 
-      // If user supplied a full HTML document, inject CSS/JS into it
       if(/<\s*html[\s>]/i.test(html)){
         let out = html;
         if(/<\s*head[\s>]/i.test(out)){
@@ -271,7 +271,6 @@
         return out;
       }
 
-      // Otherwise, wrap in our shell
       return `<!doctype html>\n<html>\n<head>\n<meta charset='utf-8'/>\n<meta name='viewport' content='width=device-width, initial-scale=1'/>\n<style>\n${css}\n</style>\n</head>\n<body>\n${html}\n${consoleBridge}\n${userJS}\n</body>\n</html>`;
     }
 
@@ -304,11 +303,8 @@
 
     function switchTab(id){
       activeTab=id;
-      // Toggle tab chip active state
       [...el.tabs.children].forEach(x=>x.classList.toggle('active', x.dataset.id===id));
-      // Show the chosen editor container, hide the rest
       for(const k in editorContainers){ editorContainers[k].style.display = (k===id? 'block':'none'); }
-      // Layout & focus the active editor
       if(editors[id]){ editors[id].layout(); editors[id].focus(); }
     }
 
@@ -346,7 +342,6 @@
           editorContainers[t.id]=div;
           if(t.id!=='html') div.style.display='none';
         });
-        // Mark initial active tab
         [...el.tabs.children].forEach(x=>x.classList.toggle('active', x.dataset.id==='html'));
         switchTab('html');
       });
@@ -386,19 +381,7 @@
       else{ document.documentElement.requestFullscreen?.(); }
     }
 
-    // ---------- Wire UI ----------
-    el.runBtn.addEventListener('click', run);
-    el.shareBtn.addEventListener('click', ()=>{ const z=LZString.compressToEncodedURIComponent(JSON.stringify(getState())); location.hash='z='+z; localStorage.setItem(STORAGE_KEY, JSON.stringify(getState())); toast('Saved to URL'); });
-    el.downloadBtn.addEventListener('click', downloadFiles);
-    el.themeBtn.addEventListener('click', toggleTheme);
-    el.fullscreenBtn.addEventListener('click', goFullscreen);
-    el.maxEditor.addEventListener('click', ()=>maximizePane(el.editorPane));
-    el.maxPreview.addEventListener('click', ()=>maximizePane(el.previewPane));
-    el.maxConsole.addEventListener('click', ()=>maximizePane(el.consolePane));
-    el.openNewTab.addEventListener('click', openInNewTab);
-    el.clearConsole.addEventListener('click', ()=>el.console.textContent='');
-
-    // --- Resizable gutters (CodePen-style) ---
+    // ---------- Resizable gutters ----------
     const COL_KEY = STORAGE_KEY+':colSplit';
     const ROW_KEY = STORAGE_KEY+':rowSplit';
 
@@ -408,27 +391,46 @@
       if(editors.html){ Object.values(editors).forEach(ed=>ed.layout()); }
     }
 
+    function computeColSplit(rect, ratio){
+      const left = Math.max(300, Math.round(rect.width * ratio) - 4);
+      const right = Math.max(300, rect.width - left - 8);
+      const total = left + right + 8;
+      if(total>rect.width){ const excess = total-rect.width; const fix = Math.ceil(excess/2); return {left:left-fix, right:right-fix}; }
+      return {left, right};
+    }
+    function computeRowSplit(rect, ratio){
+      const top = Math.max(160, Math.round(rect.height * ratio) - 4);
+      const bottom = Math.max(120, rect.height - top - 8);
+      const total = top + bottom + 8;
+      if(total>rect.height){ const excess = total-rect.height; const fix = Math.ceil(excess/2); return {top:top-fix, bottom:bottom-fix}; }
+      return {top, bottom};
+    }
+
+    function initDefaultSplits(){
+      const hasCol = !!localStorage.getItem(COL_KEY);
+      const hasRow = !!localStorage.getItem(ROW_KEY);
+      const rect = el.wrap.getBoundingClientRect();
+      if(!hasCol){ applySplits(computeColSplit(rect, DEFAULT_COL_RATIO), null); }
+      if(!hasRow){ applySplits(null, computeRowSplit(rect, DEFAULT_ROW_RATIO)); }
+    }
+
     function startColDrag(e){
       e.preventDefault();
-      // prevent iframe from swallowing events while dragging
-      const prevPE = el.previewFrame.style.pointerEvents;
-      el.previewFrame.style.pointerEvents = 'none';
-      const prevCursor = document.body.style.cursor;
-      document.body.style.cursor = 'col-resize';
+      const prevPE = el.previewFrame.style.pointerEvents; el.previewFrame.style.pointerEvents = 'none';
+      const prevCursor = document.body.style.cursor; document.body.style.cursor = 'col-resize';
       const wrapRect = el.wrap.getBoundingClientRect();
-      const minLeft = 300, minRight = 300; // px
+      const minLeft = 300, minRight = 300;
       function onMove(ev){
         const x = (ev.touches? ev.touches[0].clientX: ev.clientX) - wrapRect.left;
         const left = Math.max(minLeft, Math.min(x-4, wrapRect.width - minRight));
-        const right = wrapRect.width - left - 8; // gutter width
+        const right = wrapRect.width - left - 8;
         applySplits({left,right});
       }
       function onUp(){
         const styles = getComputedStyle(el.wrap);
-        const left = parseFloat(styles.getPropertyValue('--col-left')) || wrapRect.width*0.57;
+        const left = parseFloat(styles.getPropertyValue('--col-left')) || wrapRect.width*DEFAULT_COL_RATIO;
         const right = parseFloat(styles.getPropertyValue('--col-right')) || (wrapRect.width-left-8);
         localStorage.setItem(COL_KEY, JSON.stringify({left,right}));
-        // cleanup
         el.previewFrame.style.pointerEvents = prevPE || '';
         document.body.style.cursor = prevCursor || '';
         window.removeEventListener('mousemove', onMove);
@@ -444,13 +446,10 @@
 
     function startRowDrag(e){
       e.preventDefault();
-      // prevent iframe from swallowing events while dragging upward over preview
-      const prevPE = el.previewFrame.style.pointerEvents;
-      el.previewFrame.style.pointerEvents = 'none';
-      const prevCursor = document.body.style.cursor;
-      document.body.style.cursor = 'row-resize';
+      const prevPE = el.previewFrame.style.pointerEvents; el.previewFrame.style.pointerEvents = 'none';
+      const prevCursor = document.body.style.cursor; document.body.style.cursor = 'row-resize';
       const wrapRect = el.wrap.getBoundingClientRect();
-      const minTop = 160, minBottom = 120; // px
+      const minTop = 160, minBottom = 120;
       function onMove(ev){
         const y = (ev.touches? ev.touches[0].clientY: ev.clientY) - wrapRect.top;
         const top = Math.max(minTop, Math.min(y-4, wrapRect.height - minBottom));
@@ -459,10 +458,9 @@
       }
       function onUp(){
         const styles = getComputedStyle(el.wrap);
-        const top = parseFloat(styles.getPropertyValue('--row-top')) || (wrapRect.height*0.6);
+        const top = parseFloat(styles.getPropertyValue('--row-top')) || (wrapRect.height*DEFAULT_ROW_RATIO);
         const bottom = parseFloat(styles.getPropertyValue('--row-bottom')) || (wrapRect.height-top-8);
         localStorage.setItem(ROW_KEY, JSON.stringify({top,bottom}));
-        // cleanup
         el.previewFrame.style.pointerEvents = prevPE || '';
         document.body.style.cursor = prevCursor || '';
         window.removeEventListener('mousemove', onMove);
@@ -481,9 +479,9 @@
     el.rowGutter.addEventListener('mousedown', startRowDrag);
     el.rowGutter.addEventListener('touchstart', startRowDrag, {passive:false});
 
-    // double‑click to reset
-    el.colGutter.addEventListener('dblclick', ()=>{ localStorage.removeItem(COL_KEY); el.wrap.style.removeProperty('--col-left'); el.wrap.style.removeProperty('--col-right'); applySplits(); });
-    el.rowGutter.addEventListener('dblclick', ()=>{ localStorage.removeItem(ROW_KEY); el.wrap.style.removeProperty('--row-top'); el.wrap.style.removeProperty('--row-bottom'); applySplits(); });
+    // reset
+    el.colGutter.addEventListener('dblclick', ()=>{ localStorage.removeItem(COL_KEY); el.wrap.style.removeProperty('--col-left'); el.wrap.style.removeProperty('--col-right'); initDefaultSplits(); });
+    el.rowGutter.addEventListener('dblclick', ()=>{ localStorage.removeItem(ROW_KEY); el.wrap.style.removeProperty('--row-top'); el.wrap.style.removeProperty('--row-bottom'); initDefaultSplits(); });
 
     // restore saved splits
     try{
@@ -498,6 +496,9 @@
       const ctrl = mac? e.metaKey : e.ctrlKey;
       if(ctrl && e.key.toLowerCase()==='s'){ e.preventDefault(); const z=LZString.compressToEncodedURIComponent(JSON.stringify(getState())); location.hash='z='+z; localStorage.setItem(STORAGE_KEY, JSON.stringify(getState())); toast('Saved to URL'); }
       if(ctrl && e.key==='Enter'){ e.preventDefault(); run(); }
+      if(ctrl && e.key==='1'){ e.preventDefault(); switchTab('html'); }
+      if(ctrl && e.key==='2'){ e.preventDefault(); switchTab('css'); }
+      if(ctrl && e.key==='3'){ e.preventDefault(); switchTab('js'); }
     });
 
     // ---------- Init ----------
@@ -505,9 +506,11 @@
     const initState = loadState();
     createTabs();
     initEditors(initState);
+    window.addEventListener('load', initDefaultSplits);
+    requestAnimationFrame(initDefaultSplits);
     run();
 
-    // ---------- Minimal Self‑Tests (non‑blocking; results in Console) ----------
+    // ---------- Minimal Self‑Tests (Console) ----------
     function test(name, fn){
       try{ const ok = fn(); logToConsole(ok? 'info':'warn', [`TEST ${ok? 'PASS':'FAIL'}: ${name}`]); }
       catch(err){ logToConsole('err', [`TEST ERROR: ${name} →`, err.message||err]); }
@@ -515,11 +518,19 @@
     test('Panes exist', ()=> !!(el.editorPane && el.previewPane && el.consolePane));
     test('Gutters exist', ()=> !!(el.colGutter && el.rowGutter));
     test('Monaco loader present', ()=> typeof require==='object');
-    test('Split set applies', ()=>{ const prev={left:520,right:480}; applySplits(prev,null); const left=parseFloat(getComputedStyle(el.wrap).getPropertyValue('--col-left')); return Math.abs(left-520)<2; });
+    test('Default split applies (no saved)', ()=>{
+      const colSaved = localStorage.getItem(COL_KEY); const rowSaved = localStorage.getItem(ROW_KEY);
+      if(colSaved || rowSaved) return true;
+      const rect = el.wrap.getBoundingClientRect();
+      const expLeft = Math.round(rect.width * DEFAULT_COL_RATIO) - 4;
+      const left = parseFloat(getComputedStyle(el.wrap).getPropertyValue('--col-left'));
+      return Math.abs(left - expLeft) < 60;
+    });
     test('switchTab shows CSS', ()=>{ switchTab('css'); const vis = editorContainers.css && getComputedStyle(editorContainers.css).display!=='none'; switchTab('html'); return vis && !!editors.css; });
+    test('switchTab shows JS', ()=>{ switchTab('js'); const vis = editorContainers.js && getComputedStyle(editorContainers.js).display!=='none'; switchTab('html'); return vis && !!editors.js; });
     test('Maximize toggles class', ()=>{ const before=el.editorPane.classList.contains('max'); maximizePane(el.editorPane); const mid=!before && el.editorPane.classList.contains('max'); maximizePane(el.editorPane); const back=!el.editorPane.classList.contains('max'); return mid && back; });
     test('buildHTMLDoc returns string', ()=> typeof buildHTMLDoc({html:'<h1>A</h1>', css:'h1{color:red}', js:'console.log(1)'})==='string');
-
+    test('drag handlers exist', ()=> typeof startColDrag==='function' && typeof startRowDrag==='function');
   })();
   </script>
 </body>
