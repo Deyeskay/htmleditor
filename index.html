@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>HTML One‑File Playground • Editor + Preview + Console</title>
   <meta name="description" content="A single-file HTML/CSS/JS playground with Monaco editor, preview, console, draggable split panes, maximize panes, and share URL. Host on GitHub Pages." />
-  <link rel="icon" type="image/svg+xml" href="https://deyeskay.github.io/hub/sk-download.svg">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath fill='%2300d1b2' d='M6 12h52v8H6zM6 28h52v8H6zM6 44h52v8H6z'/%3E%3C/svg%3E" />
   <style>
     :root{
       --bg: #0b0e12; --pane:#121720; --pane-2:#0f141c; --ac:#00d1b2; --fg:#dbe2ee; --muted:#93a1b3; --border:#1d2633;
@@ -79,7 +79,7 @@
 <body>
   <div class="toolbar">
     <div class="logo" title="HTML One‑File Playground">
-      <img src="https://deyeskay.github.io/hub/sk-download.svg" alt="SK Games logo" style="width: 30px;">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3 6h18v3H3zM3 11h18v3H3zM3 16h18v3H3z" fill="var(--ac)"/></svg>
       <span>Playground</span>
     </div>
     <button id="runBtn" class="btn" data-primary>
@@ -189,6 +189,7 @@
     ];
 
     let editors={};
+    let editorContainers={};
     let activeTab='html';
     let monaco;
 
@@ -303,14 +304,22 @@
 
     function switchTab(id){
       activeTab=id;
+      // Toggle tab chip active state
       [...el.tabs.children].forEach(x=>x.classList.toggle('active', x.dataset.id===id));
-      for(const k in editors){ editors[k].getDomNode().style.display = (k===id? 'block':'none'); }
-      editors[id].layout();
+      // Show the chosen editor container, hide the rest
+      for(const k in editorContainers){ editorContainers[k].style.display = (k===id? 'block':'none'); }
+      // Layout & focus the active editor
+      if(editors[id]){ editors[id].layout(); editors[id].focus(); }
     }
 
     function createTabs(){
       tabs.forEach(t=>{
-        const b=document.createElement('button'); b.className='tab'; b.dataset.id=t.id; b.textContent=t.name; b.addEventListener('click',()=>switchTab(t.id)); el.tabs.appendChild(b);
+        const b=document.createElement('button');
+        b.className='tab';
+        b.dataset.id=t.id;
+        b.textContent=t.name;
+        b.addEventListener('click',()=>switchTab(t.id));
+        el.tabs.appendChild(b);
       });
     }
 
@@ -318,14 +327,27 @@
       require(['vs/editor/editor.main'], function(m){
         monaco=m;
         const opts=(lang, val)=>({
-          value: val, language: lang, automaticLayout:true, theme: document.documentElement.dataset.theme==='light'? 'vs':'vs-dark',
-          fontLigatures: true, fontSize: 14, minimap:{enabled:false}, wordWrap:'on', scrollBeyondLastLine:false
+          value: val,
+          language: lang,
+          automaticLayout:true,
+          theme: document.documentElement.dataset.theme==='light'? 'vs':'vs-dark',
+          fontLigatures: true,
+          fontSize: 14,
+          minimap:{enabled:false},
+          wordWrap:'on',
+          scrollBeyondLastLine:false
         });
         tabs.forEach(t=>{
-          const div=document.createElement('div'); div.style.cssText='position:absolute; inset:0;'; el.editorHost.appendChild(div);
+          const div=document.createElement('div');
+          div.style.cssText='position:absolute; inset:0;';
+          el.editorHost.appendChild(div);
           const ed = monaco.editor.create(div, opts(t.lang, init[t.id]||''));
-          editors[t.id]=ed; if(t.id!=='html') div.style.display='none';
+          editors[t.id]=ed;
+          editorContainers[t.id]=div;
+          if(t.id!=='html') div.style.display='none';
         });
+        // Mark initial active tab
+        [...el.tabs.children].forEach(x=>x.classList.toggle('active', x.dataset.id==='html'));
         switchTab('html');
       });
     }
@@ -493,9 +515,10 @@
     test('Panes exist', ()=> !!(el.editorPane && el.previewPane && el.consolePane));
     test('Gutters exist', ()=> !!(el.colGutter && el.rowGutter));
     test('Monaco loader present', ()=> typeof require==='object');
-    // Additional tests
+    test('Split set applies', ()=>{ const prev={left:520,right:480}; applySplits(prev,null); const left=parseFloat(getComputedStyle(el.wrap).getPropertyValue('--col-left')); return Math.abs(left-520)<2; });
+    test('switchTab shows CSS', ()=>{ switchTab('css'); const vis = editorContainers.css && getComputedStyle(editorContainers.css).display!=='none'; switchTab('html'); return vis && !!editors.css; });
     test('Maximize toggles class', ()=>{ const before=el.editorPane.classList.contains('max'); maximizePane(el.editorPane); const mid=!before && el.editorPane.classList.contains('max'); maximizePane(el.editorPane); const back=!el.editorPane.classList.contains('max'); return mid && back; });
-    test('buildHTMLDoc returns string', ()=> typeof buildHTMLDoc({html:'<h1>A</h1>', css:'h1{color:red}', js:'console.log(1)'}).then? false : typeof buildHTMLDoc({html:'<h1>A</h1>', css:'h1{color:red}', js:'console.log(1)'})==='string');
+    test('buildHTMLDoc returns string', ()=> typeof buildHTMLDoc({html:'<h1>A</h1>', css:'h1{color:red}', js:'console.log(1)'})==='string');
 
   })();
   </script>
