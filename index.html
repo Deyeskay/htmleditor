@@ -4,12 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>HTML One‑File Playground • Editor + Preview + Console</title>
-  <meta name="description" content="A single-file HTML/CSS/JS playground with Monaco editor, preview, console, maximize panes, and share via URL. Host on GitHub Pages." />
+  <meta name="description" content="A single-file HTML/CSS/JS playground with Monaco editor, preview, console, draggable split panes, maximize panes, and share URL. Host on GitHub Pages." />
   <link rel="icon" type="image/svg+xml" href="https://deyeskay.github.io/hub/sk-download.svg">
-   <style>
+  <style>
     :root{
       --bg: #0b0e12; --pane:#121720; --pane-2:#0f141c; --ac:#00d1b2; --fg:#dbe2ee; --muted:#93a1b3; --border:#1d2633;
       --btn:#151b24; --btn2:#18202b; --yellow:#ffd866; --red:#ff5370; --green:#a6e22e;
+      --col-left: 1.3fr; --col-right: 1fr; --row-top: 1fr; --row-bottom: 220px;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -24,7 +25,7 @@
     .btn small{opacity:.8}
     .kbd{padding:2px 6px;border:1px solid var(--border);border-bottom-width:2px;border-radius:6px;background:#0c1117;color:var(--muted);font-size:12px}
 
-    .wrap{height:calc(100% - 54px);display:grid;grid-template-columns: 1.3fr 1fr;grid-template-rows: 1fr 220px;gap:10px;padding:10px}
+    .wrap{height:calc(100% - 54px);display:grid;grid-template-columns: var(--col-left) 8px var(--col-right);grid-template-rows: var(--row-top) 8px var(--row-bottom);gap:10px;padding:10px}
     .pane{background:var(--pane);border:1px solid var(--border);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;min-height:0;position:relative}
     .pane header{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--border);background:var(--pane-2)}
     .pane header .title{font-weight:600}
@@ -45,13 +46,22 @@
     .log .err{color:var(--red)}
 
     /* Grid placement */
-    .pane.editor{grid-column:1;grid-row:1/span 2}
-    .pane.preview{grid-column:2;grid-row:1}
-    .pane.console{grid-column:2;grid-row:2}
+    .pane.editor{grid-column:1;grid-row:1 / span 3}
+    .pane.preview{grid-column:3;grid-row:1}
+    .pane.console{grid-column:3;grid-row:3}
+
+    /* Gutters (drag handles) */
+    .gutter{background:var(--pane-2); border:1px solid var(--border); border-radius:10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.02);} 
+    .gutter.col{grid-column:2; grid-row:1 / span 3; cursor:col-resize; min-width:8px; display:grid; place-items:center}
+    .gutter.row{grid-column:3; grid-row:2; cursor:row-resize; min-height:8px}
+    .gutter .dot{width:3px; height:28px; border-radius:2px; background:#2a3342}
 
     /* Maximize overlays */
-    .pane.max{position:fixed;inset:10px;z-index:50;box-shadow:0 12px 40px rgba(0,0,0,.6)}
-    .glass{position:absolute;inset:0;background:radial-gradient(600px 400px at 80% 0%,rgba(0,209,178,.10),transparent 60%), radial-gradient(600px 400px at 20% 100%,rgba(255,83,112,.08),transparent 60%)}
+    body.max-open{overflow:hidden}
+    .pane.max{position:fixed;inset:0;z-index:100;box-shadow:none;width:100vw;height:100vh;background:var(--pane);}
+    .pane.max .glass{display:none}
+    .pane.max header{position:sticky;top:0;z-index:101}
+    .pane.max .tabs{position:sticky;top:42px;z-index:101}
 
     /* Toast */
     .toast{position:fixed;right:12px;bottom:12px;background:#101622;border:1px solid var(--border);color:var(--fg);padding:8px 12px;border-radius:10px;opacity:0;transform:translateY(10px);transition:.3s;z-index:60}
@@ -62,6 +72,7 @@
       .pane.editor{grid-column:1;grid-row:1}
       .pane.preview{grid-column:1;grid-row:2}
       .pane.console{grid-column:1;grid-row:3}
+      .gutter{display:none}
     }
   </style>
 </head>
@@ -96,6 +107,9 @@
       <div id="editorHost" aria-live="polite"></div>
     </section>
 
+    <!-- Column Gutter -->
+    <div id="colGutter" class="gutter col" title="Drag to resize (double‑click to reset)"><span class="dot"></span></div>
+
     <!-- PREVIEW -->
     <section class="pane preview" id="previewPane" aria-label="Preview">
       <header>
@@ -107,6 +121,9 @@
       </header>
       <iframe id="previewFrame" sandbox="allow-scripts allow-same-origin allow-popups" title="Preview output"></iframe>
     </section>
+
+    <!-- Row Gutter -->
+    <div id="rowGutter" class="gutter row" title="Drag to resize (double‑click to reset)"></div>
 
     <!-- CONSOLE -->
     <section class="pane console" id="consolePane" aria-label="Console">
@@ -132,6 +149,7 @@
 
   <script>
   (function(){
+    // ---------- Defaults ----------
     const DEFAULTS={
       html:`<!doctype html>\n<html>\n<head>\n  <meta charset='utf-8'>\n  <meta name='viewport' content='width=device-width, initial-scale=1'>\n  <title>Playground App</title>\n</head>\n<body>\n  <h1>Hello, Playground! 👋</h1>\n  <button id='btn'>Click me</button>\n  <p>Edit HTML/CSS/JS and press <b>Run</b> or <b>Ctrl/Cmd+Enter</b>.</p>\n</body>\n</html>`,
       css:`body{font-family:system-ui} h1{color:#0d9488}`,
@@ -139,6 +157,7 @@
     };
     const STORAGE_KEY='onefile-playground-v1';
 
+    // ---------- Elements ----------
     const el={
       runBtn: document.getElementById('runBtn'),
       shareBtn: document.getElementById('shareBtn'),
@@ -157,19 +176,23 @@
       clearConsole: document.getElementById('clearConsole'),
       editorPane: document.getElementById('editorPane'),
       previewPane: document.getElementById('previewPane'),
-      consolePane: document.getElementById('consolePane')
+      consolePane: document.getElementById('consolePane'),
+      colGutter: document.getElementById('colGutter'),
+      rowGutter: document.getElementById('rowGutter'),
+      wrap: document.querySelector('.wrap')
     };
 
     const tabs=[
-      {id:'html', name:'HTML', lang:'html', icon:'</>'},
-      {id:'css', name:'CSS', lang:'css', icon:'{ }'},
-      {id:'js', name:'JS', lang:'javascript', icon:'JS'}
+      {id:'html', name:'HTML', lang:'html'},
+      {id:'css', name:'CSS', lang:'css'},
+      {id:'js', name:'JS', lang:'javascript'}
     ];
 
     let editors={};
     let activeTab='html';
     let monaco;
 
+    // ---------- Helpers ----------
     function toast(msg){
       el.toast.textContent=msg; el.toast.classList.add('show');
       clearTimeout(toast._t); toast._t=setTimeout(()=>el.toast.classList.remove('show'), 1600);
@@ -190,14 +213,6 @@
       return {html:DEFAULTS.html, css:DEFAULTS.css, js:DEFAULTS.js};
     }
 
-    function saveStateToHash(){
-      const state = getState();
-      const z=LZString.compressToEncodedURIComponent(JSON.stringify(state));
-      location.hash='z='+z; // enables shareable URL
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-      toast('Saved to URL');
-    }
-
     function getState(){
       return {
         html: editors.html?.getValue() ?? DEFAULTS.html,
@@ -206,9 +221,56 @@
       }
     }
 
-    function buildHTMLDoc({html,css,js}, forWindow=false){
+    function setTheme(mode){
+      if(mode==='light'){
+        document.documentElement.dataset.theme='light';
+        document.documentElement.style.setProperty('--bg','#f5f7fb');
+        document.documentElement.style.setProperty('--pane','#ffffff');
+        document.documentElement.style.setProperty('--pane-2','#f2f5fb');
+        document.documentElement.style.setProperty('--fg','#0b0e12');
+        document.documentElement.style.setProperty('--muted','#425067');
+        document.documentElement.style.setProperty('--border','#e8eef7');
+        document.documentElement.style.setProperty('--btn','#f7f9fe');
+        document.documentElement.style.setProperty('--btn2','#eef3fb');
+      } else {
+        document.documentElement.dataset.theme='dark';
+        document.documentElement.style.cssText='';
+      }
+      if(monaco){ monaco.editor.setTheme(mode==='light'? 'vs':'vs-dark'); }
+      localStorage.setItem(STORAGE_KEY+':theme', mode);
+    }
+
+    function toggleTheme(){
+      const next = (document.documentElement.dataset.theme==='light')? 'dark':'light';
+      setTheme(next);
+    }
+
+    function restoreTheme(){
+      const t=localStorage.getItem(STORAGE_KEY+':theme') || 'dark';
+      setTheme(t);
+    }
+
+    function buildHTMLDoc({html,css,js}){
       const consoleBridge = `\n<script>\n(function(){\n  const q = (type, args)=> parent.postMessage({type, args}, '*');\n  ['log','info','warn','error'].forEach(k=>{\n    const orig = console[k].bind(console);\n    console[k]=function(){ orig.apply(console, arguments); q('console:'+k, Array.from(arguments)); }\n  });\n  window.addEventListener('error', e=>{ q('console:error', [e.message+' @ '+(e.filename||'')+':'+(e.lineno||'')]); });\n})();\n<\/script>`;
       const userJS = `<script>\ntry{\n${js}\n}catch(e){console.error(e)}\n<\/script>`;
+
+      // If user supplied a full HTML document, inject CSS/JS into it
+      if(/<\s*html[\s>]/i.test(html)){
+        let out = html;
+        if(/<\s*head[\s>]/i.test(out)){
+          out = out.replace(/<\s*head[\s>]/i, m=> m+`\n<style>\n${css}\n<\/style>`);
+        } else {
+          out = out.replace(/<\s*body[\s>]/i, m=> `\n<head>\n<style>\n${css}\n<\/style>\n<\/head>\n`+m);
+        }
+        if(/<\s*body[\s>]/i.test(out)){
+          out = out.replace(/<\/\s*body\s*>/i, `${consoleBridge}${userJS}</body>`);
+        } else {
+          out += `\n<body>${consoleBridge}${userJS}</body>`;
+        }
+        return out;
+      }
+
+      // Otherwise, wrap in our shell
       return `<!doctype html>\n<html>\n<head>\n<meta charset='utf-8'/>\n<meta name='viewport' content='width=device-width, initial-scale=1'/>\n<style>\n${css}\n</style>\n</head>\n<body>\n${html}\n${consoleBridge}\n${userJS}\n</body>\n</html>`;
     }
 
@@ -268,34 +330,17 @@
       });
     }
 
-    function toggleTheme(){
-      const light = document.documentElement.dataset.theme==='light';
-      document.documentElement.dataset.theme = light? 'dark':'light';
-      // swap palette
-      if(!light){ // go light
-        document.documentElement.style.setProperty('--bg','#f5f7fb');
-        document.documentElement.style.setProperty('--pane','#ffffff');
-        document.documentElement.style.setProperty('--pane-2','#f2f5fb');
-        document.documentElement.style.setProperty('--fg','#0b0e12');
-        document.documentElement.style.setProperty('--muted','#425067');
-        document.documentElement.style.setProperty('--border','#e8eef7');
-        document.documentElement.style.setProperty('--btn','#f7f9fe');
-        document.documentElement.style.setProperty('--btn2','#eef3fb');
-      }else{ // back to dark
-        document.documentElement.style.cssText='';
+    function maximizePane(pane){
+      const willMax = !pane.classList.contains('max');
+      document.body.classList.toggle('max-open', willMax);
+      pane.classList.toggle('max', willMax);
+      if(pane===el.editorPane && editors && Object.keys(editors).length){
+        setTimeout(()=>{ Object.values(editors).forEach(ed=> ed.layout()); }, 50);
       }
-      if(monaco){ const theme = document.documentElement.dataset.theme==='light'? 'vs':'vs-dark'; monaco.editor.setTheme(theme); }
-      localStorage.setItem(STORAGE_KEY+':theme', document.documentElement.dataset.theme||'dark');
     }
-
-    function restoreTheme(){
-      const t=localStorage.getItem(STORAGE_KEY+':theme'); if(t==='light'){ document.documentElement.dataset.theme='light'; toggleTheme(); }
-    }
-
-    function maximizePane(pane){ pane.classList.toggle('max'); }
 
     function openInNewTab(){
-      const html = buildHTMLDoc(getState(), true);
+      const html = buildHTMLDoc(getState());
       const blob = new Blob([html], {type:'text/html'});
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank');
@@ -319,9 +364,9 @@
       else{ document.documentElement.requestFullscreen?.(); }
     }
 
-    // Wire UI
+    // ---------- Wire UI ----------
     el.runBtn.addEventListener('click', run);
-    el.shareBtn.addEventListener('click', saveStateToHash);
+    el.shareBtn.addEventListener('click', ()=>{ const z=LZString.compressToEncodedURIComponent(JSON.stringify(getState())); location.hash='z='+z; localStorage.setItem(STORAGE_KEY, JSON.stringify(getState())); toast('Saved to URL'); });
     el.downloadBtn.addEventListener('click', downloadFiles);
     el.themeBtn.addEventListener('click', toggleTheme);
     el.fullscreenBtn.addEventListener('click', goFullscreen);
@@ -331,19 +376,127 @@
     el.openNewTab.addEventListener('click', openInNewTab);
     el.clearConsole.addEventListener('click', ()=>el.console.textContent='');
 
+    // --- Resizable gutters (CodePen-style) ---
+    const COL_KEY = STORAGE_KEY+':colSplit';
+    const ROW_KEY = STORAGE_KEY+':rowSplit';
+
+    function applySplits(colPx, rowPx){
+      if(colPx){ el.wrap.style.setProperty('--col-left', colPx.left+'px'); el.wrap.style.setProperty('--col-right', colPx.right+'px'); }
+      if(rowPx){ el.wrap.style.setProperty('--row-top', rowPx.top+'px'); el.wrap.style.setProperty('--row-bottom', rowPx.bottom+'px'); }
+      if(editors.html){ Object.values(editors).forEach(ed=>ed.layout()); }
+    }
+
+    function startColDrag(e){
+      e.preventDefault();
+      // prevent iframe from swallowing events while dragging
+      const prevPE = el.previewFrame.style.pointerEvents;
+      el.previewFrame.style.pointerEvents = 'none';
+      const prevCursor = document.body.style.cursor;
+      document.body.style.cursor = 'col-resize';
+      const wrapRect = el.wrap.getBoundingClientRect();
+      const minLeft = 300, minRight = 300; // px
+      function onMove(ev){
+        const x = (ev.touches? ev.touches[0].clientX: ev.clientX) - wrapRect.left;
+        const left = Math.max(minLeft, Math.min(x-4, wrapRect.width - minRight));
+        const right = wrapRect.width - left - 8; // gutter width
+        applySplits({left,right});
+      }
+      function onUp(){
+        const styles = getComputedStyle(el.wrap);
+        const left = parseFloat(styles.getPropertyValue('--col-left')) || wrapRect.width*0.57;
+        const right = parseFloat(styles.getPropertyValue('--col-right')) || (wrapRect.width-left-8);
+        localStorage.setItem(COL_KEY, JSON.stringify({left,right}));
+        // cleanup
+        el.previewFrame.style.pointerEvents = prevPE || '';
+        document.body.style.cursor = prevCursor || '';
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('touchend', onUp);
+      }
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchmove', onMove, {passive:false});
+      window.addEventListener('touchend', onUp);
+    }
+
+    function startRowDrag(e){
+      e.preventDefault();
+      // prevent iframe from swallowing events while dragging upward over preview
+      const prevPE = el.previewFrame.style.pointerEvents;
+      el.previewFrame.style.pointerEvents = 'none';
+      const prevCursor = document.body.style.cursor;
+      document.body.style.cursor = 'row-resize';
+      const wrapRect = el.wrap.getBoundingClientRect();
+      const minTop = 160, minBottom = 120; // px
+      function onMove(ev){
+        const y = (ev.touches? ev.touches[0].clientY: ev.clientY) - wrapRect.top;
+        const top = Math.max(minTop, Math.min(y-4, wrapRect.height - minBottom));
+        const bottom = wrapRect.height - top - 8;
+        applySplits(null,{top,bottom});
+      }
+      function onUp(){
+        const styles = getComputedStyle(el.wrap);
+        const top = parseFloat(styles.getPropertyValue('--row-top')) || (wrapRect.height*0.6);
+        const bottom = parseFloat(styles.getPropertyValue('--row-bottom')) || (wrapRect.height-top-8);
+        localStorage.setItem(ROW_KEY, JSON.stringify({top,bottom}));
+        // cleanup
+        el.previewFrame.style.pointerEvents = prevPE || '';
+        document.body.style.cursor = prevCursor || '';
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        window.removeEventListener('touchmove', onMove);
+        window.removeEventListener('touchend', onUp);
+      }
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchmove', onMove, {passive:false});
+      window.addEventListener('touchend', onUp);
+    }
+
+    el.colGutter.addEventListener('mousedown', startColDrag);
+    el.colGutter.addEventListener('touchstart', startColDrag, {passive:false});
+    el.rowGutter.addEventListener('mousedown', startRowDrag);
+    el.rowGutter.addEventListener('touchstart', startRowDrag, {passive:false});
+
+    // double‑click to reset
+    el.colGutter.addEventListener('dblclick', ()=>{ localStorage.removeItem(COL_KEY); el.wrap.style.removeProperty('--col-left'); el.wrap.style.removeProperty('--col-right'); applySplits(); });
+    el.rowGutter.addEventListener('dblclick', ()=>{ localStorage.removeItem(ROW_KEY); el.wrap.style.removeProperty('--row-top'); el.wrap.style.removeProperty('--row-bottom'); applySplits(); });
+
+    // restore saved splits
+    try{
+      const c = JSON.parse(localStorage.getItem(COL_KEY)||'null');
+      const r = JSON.parse(localStorage.getItem(ROW_KEY)||'null');
+      if(c||r) applySplits(c,r);
+    }catch{}
+
+    // Keyboard shortcuts
     document.addEventListener('keydown', (e)=>{
       const mac = navigator.platform.toUpperCase().includes('MAC');
       const ctrl = mac? e.metaKey : e.ctrlKey;
-      if(ctrl && e.key.toLowerCase()==='s'){ e.preventDefault(); saveStateToHash(); }
+      if(ctrl && e.key.toLowerCase()==='s'){ e.preventDefault(); const z=LZString.compressToEncodedURIComponent(JSON.stringify(getState())); location.hash='z='+z; localStorage.setItem(STORAGE_KEY, JSON.stringify(getState())); toast('Saved to URL'); }
       if(ctrl && e.key==='Enter'){ e.preventDefault(); run(); }
     });
 
-    // Init
+    // ---------- Init ----------
     restoreTheme();
-    const init = loadState();
+    const initState = loadState();
     createTabs();
-    initEditors(init);
+    initEditors(initState);
     run();
+
+    // ---------- Minimal Self‑Tests (non‑blocking; results in Console) ----------
+    function test(name, fn){
+      try{ const ok = fn(); logToConsole(ok? 'info':'warn', [`TEST ${ok? 'PASS':'FAIL'}: ${name}`]); }
+      catch(err){ logToConsole('err', [`TEST ERROR: ${name} →`, err.message||err]); }
+    }
+    test('Panes exist', ()=> !!(el.editorPane && el.previewPane && el.consolePane));
+    test('Gutters exist', ()=> !!(el.colGutter && el.rowGutter));
+    test('Monaco loader present', ()=> typeof require==='object');
+    // Additional tests
+    test('Maximize toggles class', ()=>{ const before=el.editorPane.classList.contains('max'); maximizePane(el.editorPane); const mid=!before && el.editorPane.classList.contains('max'); maximizePane(el.editorPane); const back=!el.editorPane.classList.contains('max'); return mid && back; });
+    test('buildHTMLDoc returns string', ()=> typeof buildHTMLDoc({html:'<h1>A</h1>', css:'h1{color:red}', js:'console.log(1)'}).then? false : typeof buildHTMLDoc({html:'<h1>A</h1>', css:'h1{color:red}', js:'console.log(1)'})==='string');
+
   })();
   </script>
 </body>
