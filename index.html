@@ -470,8 +470,7 @@
       }
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
-      window.addEventListener('touchmove', onMove, {passive:false});
-      window.addEventListener('touchend', onUp);
+      window.addEventListener('touchstart', startRowDrag, {passive:false});
     }
 
     el.colGutter.addEventListener('mousedown', startColDrag);
@@ -506,6 +505,50 @@
     const initState = loadState();
     createTabs();
     initEditors(initState);
+
+    // --- WIRED CONTROLS (added) ---
+    (function(){
+      // Toolbar
+      el.runBtn.addEventListener('click', run);
+
+      el.shareBtn.addEventListener('click', async ()=>{
+        const state = JSON.stringify(getState());
+        const z = LZString.compressToEncodedURIComponent(state);
+        const url = location.origin + location.pathname + '#z=' + z;
+        history.replaceState(null, '', '#z=' + z);
+        try{ await navigator.clipboard?.writeText(url); toast('Saved & URL copied'); }
+        catch{ toast('Saved to URL (copy failed)'); }
+        try{ localStorage.setItem(STORAGE_KEY, state); }catch{}
+      });
+
+      el.downloadBtn.addEventListener('click', downloadFiles);
+      el.themeBtn.addEventListener('click', toggleTheme);
+      el.fullscreenBtn.addEventListener('click', goFullscreen);
+
+      // Preview
+      el.openNewTab.addEventListener('click', openInNewTab);
+
+      // Console
+      el.clearConsole.addEventListener('click', ()=>{ el.console.textContent=''; toast('Console cleared'); });
+
+      // Maximize
+      el.maxEditor.addEventListener('click', ()=> maximizePane(el.editorPane));
+      el.maxPreview.addEventListener('click', ()=> maximizePane(el.previewPane));
+      el.maxConsole.addEventListener('click', ()=> maximizePane(el.consolePane));
+
+      // Header dblclick to toggle maximize
+      el.editorPane.querySelector('header')?.addEventListener('dblclick', ()=> maximizePane(el.editorPane));
+      el.previewPane.querySelector('header')?.addEventListener('dblclick', ()=> maximizePane(el.previewPane));
+      el.consolePane.querySelector('header')?.addEventListener('dblclick', ()=> maximizePane(el.consolePane));
+
+      // Persist on unload
+      window.addEventListener('beforeunload', ()=>{
+        try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(getState())); }catch{}
+      });
+
+      setTimeout(()=> editors[activeTab]?.focus?.(), 50);
+    })();
+
     window.addEventListener('load', initDefaultSplits);
     requestAnimationFrame(initDefaultSplits);
     run();
